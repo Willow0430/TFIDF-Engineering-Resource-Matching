@@ -9,6 +9,11 @@ Data source: Liaoning Province construction pricing quota (2024 edition) and
 Shenyang material price information. Each entry carries an id, a normalized
 name, a unit, a unit price, a category and a free-text description used for
 TF-IDF matching.
+
+Material / specification / strength attributes are *not* fabricated into the
+records; they are extracted at runtime from the name/description text by
+``similarity.extract_parameters``. Data provenance is recorded in
+``DATA_SOURCE`` and integrity is checked by ``validate_db``.
 """
 
 
@@ -290,3 +295,57 @@ def build_quota_db():
 
 
 QUOTA_DB = build_quota_db()
+
+# ── Data provenance ──
+DATA_SOURCE = (
+    "《辽宁省建设工程计价定额（2024版）》与沈阳地区材料信息价；"
+    "本库为人工整理的示意性资源库，编号与价格仅作匹配演示，不构成造价依据。"
+)
+LAST_UPDATED = "2026-11-20"
+
+# Known specialties (must match the category strings used in build_quota_db).
+CATEGORIES = {
+    '砌筑工程', '混凝土工程', '钢筋工程', '保温工程', '防水工程',
+    '抹灰工程', '涂料工程', '门窗工程', '钢结构工程', '楼地面工程',
+    '天棚工程', '屋面工程', '安装工程', '电气工程', '暖通工程',
+    '市政工程', '园林景观', '适老化专项', '拆除工程', '措施项目', '智能化',
+}
+
+
+def validate_db(db=None):
+    """Check the resource library for data-integrity problems.
+
+    Returns a list of human-readable problem strings; an empty list means the
+    library is consistent. Checks: duplicate / empty ids, empty names, unknown
+    categories, empty units, non-numeric prices.
+    """
+    db = db if db is not None else QUOTA_DB
+    problems = []
+    seen_ids = {}
+    for i, item in enumerate(db):
+        qid = item.get('id')
+        name = item.get('name')
+        cat = item.get('category')
+        unit = item.get('unit')
+        price = item.get('unit_price')
+
+        if not qid:
+            problems.append(f"第{i}条: id 为空")
+        elif qid in seen_ids:
+            problems.append(f"第{i}条: id 重复 '{qid}' (与第{seen_ids[qid]}条冲突)")
+        else:
+            seen_ids[qid] = i
+
+        if not name or not str(name).strip():
+            problems.append(f"第{i}条 (id={qid}): 名称为空")
+
+        if cat not in CATEGORIES:
+            problems.append(f"第{i}条 (id={qid}): 未知专业类别 '{cat}'")
+
+        if not unit or not str(unit).strip():
+            problems.append(f"第{i}条 (id={qid}): 单位为空")
+
+        if not isinstance(price, (int, float)):
+            problems.append(f"第{i}条 (id={qid}): 单价非数值 '{price}'")
+
+    return problems

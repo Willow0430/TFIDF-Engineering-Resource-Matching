@@ -64,23 +64,24 @@ quota_db.py ──► matching.py ──► evaluation.py
 
 ## 5. Design decisions
 
-- **Weights (0.65 / 0.20 / 0.15)** — cosine dominates because it is the most
-  reliable signal; keyword and dimension boosts break ties and fix dimension
-  sensitivity without overpowering the lexical core.
-- **Threshold `0.03`** — prunes obviously irrelevant candidates, keeping the
+- **Weights (0.40 / 0.25 / 0.25 / 0.10)** — text, keyword, parameter, category.
+  These are an experimental starting point; the ablation study shows the
+  parameter signal can over-penalize, so they are not claimed to be optimal.
+- **Threshold `0.05`** — prunes obviously irrelevant candidates, keeping the
   top-k list clean without dropping true near-misses.
-- **Two reliability cutoffs (`0.25` / `0.12`)** — coarse human-facing labels
+- **Two reliability cutoffs (`0.45` / `0.20`)** — coarse human-facing labels
   rather than a calibrated probability.
 - **Hardcoded library** — chosen for out-of-the-box reproducibility; loading
   from CSV is listed as future work.
 
 ## 6. Evaluation methodology
 
-- **Data**: 30 curated queries — 20 standard descriptions plus 10 colloquial
-  / shorthand cases — spanning all 21 specialties.
-- **Metric**: top-1 category accuracy, plus confidence and latency.
-- **Procedure**: run the suite end-to-end, record per-case verdicts, report
-  accuracy by case type. Full numbers in `results/experiment_report.md`.
+- **Data**: 30 labeled queries — 20 standard plus 10 colloquial — spanning all
+  21 specialties, each with an expected specialty and a best-effort 资源编号.
+- **Metrics**: category accuracy (top-1/top-3), resource-id accuracy
+  (top-1/top-3), Precision@1, Recall@3, MRR@3, plus confidence and latency.
+- **Procedure**: run the suite end-to-end and the A/B/C/D ablation; report both
+  accuracy levels separately. Full numbers in `results/experiment_report.md`.
 
 ## 7. Future roadmap
 

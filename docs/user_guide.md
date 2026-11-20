@@ -76,9 +76,10 @@ Each match is a dict:
 | Field          | Meaning                                              |
 |----------------|------------------------------------------------------|
 | `quota`        | the matched resource (id, name, unit, unit_price, category, desc) |
-| `tfidf_sim`    | TF-IDF cosine similarity (weight 0.65)               |
-| `kw_score`     | keyword-overlap boost (weight 0.20)                  |
-| `dim_score`    | dimension-match boost (weight 0.15)                  |
+| `s_text`       | TF-IDF cosine similarity (weight 0.40)               |
+| `s_keyword`    | weighted keyword-overlap ratio (weight 0.25)         |
+| `s_param`      | parameter-match score in [-1,1] (weight 0.25)        |
+| `s_category`   | category-affinity score (weight 0.10)                |
 | `combined`     | fused score                                          |
 | `confidence`   | combined × 100, capped at 99.9                       |
 | `reliability`  | `high` / `medium` / `low`                            |

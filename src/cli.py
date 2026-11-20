@@ -5,6 +5,7 @@ Usage::
 
     python main.py            # run the evaluation suite (default)
     python main.py --report   # same as above
+    python main.py --ablation # run the A/B/C/D ablation comparison
     python main.py --demo     # interactive demo
     python main.py --web      # launch the Gradio web demo
     python main.py --all      # run tests then the demo
@@ -26,19 +27,23 @@ def main(argv=None):
     argv = list(sys.argv[1:] if argv is None else argv)
     _fix_windows_console()
 
-    from .evaluation import run_full_tests, demonstrate
+    from .evaluation import run_full_tests, run_ablation, demonstrate
     from .web import build_web_demo
 
     if not argv:
         run_full_tests(verbose=True)
     elif argv[0] == "--report":
         run_full_tests(verbose=True)
+    elif argv[0] == "--ablation":
+        run_ablation(verbose=True)
     elif argv[0] == "--demo":
         demonstrate()
     elif argv[0] == "--web":
         build_web_demo()
     elif argv[0] == "--all":
         run_full_tests(verbose=True)
+        print("\n")
+        run_ablation(verbose=True)
         print("\n\n")
         demonstrate()
     else:

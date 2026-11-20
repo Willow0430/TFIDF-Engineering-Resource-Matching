@@ -52,8 +52,10 @@ Concretely, the matcher must handle:
 - **Robust tokenization** — jieba first, with a built-in regex fallback when
   jieba is not installed.
 - **TF-IDF vectorization** — smoothed IDF weighting over the resource corpus.
-- **Fused scoring** — cosine similarity (0.65) + keyword-overlap boost (0.20)
-  + dimension-match boost (0.15).
+- **Fused scoring** — four interpretable signals: text similarity (0.40),
+  keyword overlap (0.25), parameter match (0.25) and category affinity (0.10).
+  These weights are an experimental starting point, tuned via an ablation study
+  (`run_ablation`), and are not claimed to be optimal.
 - **Confidence & reliability** — every match reports a percentage confidence
   and a high / medium / low reliability label.
 - **Change-cost prediction** — a bonus module that maps a change type + area
@@ -65,19 +67,20 @@ Concretely, the matcher must handle:
 ```
 description ─▶ normalize ─▶ tokenize ─▶ TF-IDF vector
                                               │
-                     cosine sim (0.65)  ──────┤
-                     keyword boost (0.20) ────┼──▶ combined score ─▶ rank ─▶ top-k
-                     dimension match (0.15) ─┘
+                     text sim (0.40)  ────────┤
+                     keyword (0.25)  ─────────┼──▶ combined score ─▶ rank ─▶ top-k
+                     parameter (0.25) ────────┤
+                     category (0.10) ─────────┘
 ```
 
 | Module              | Responsibility                                      |
 |---------------------|-----------------------------------------------------|
 | `preprocessing.py`  | normalization, tokenization                         |
 | `tfidf.py`          | IDF + TF-IDF vector computation                     |
-| `similarity.py`     | cosine similarity, dimension & keyword heuristics   |
+| `similarity.py`     | cosine similarity, parameter & keyword heuristics   |
 | `quota_db.py`       | the 202-entry resource library                      |
 | `matching.py`       | `match_quota` and `predict_change`                  |
-| `evaluation.py`     | 30-case test suite and demo                         |
+| `evaluation.py`     | labeled test set, metrics, ablation study           |
 | `web.py`            | Gradio web demo                                     |
 
 ## Project Structure
@@ -158,20 +161,29 @@ See `examples/example.py` for a runnable version.
 
 ## Sample Results
 
-Evaluation of the 30 built-in cases (20 standard + 10 colloquial), measured on
-the shipped library:
+The 30 built-in cases (20 standard + 10 colloquial) are reported at **two
+levels**, which must not be conflated:
 
-| Metric                       | Result        |
-|------------------------------|---------------|
-| Overall accuracy (top-1)     | **29/30 = 96.7%** |
-| Standard cases (top-1)       | 20/20 = 100.0% |
-| Colloquial cases (top-1)     | 9/10 = 90.0%   |
-| Average confidence           | 47.2%          |
-| Average latency              | ~26 ms / case  |
+| Metric                                              | Result          |
+|-----------------------------------------------------|-----------------|
+| Category accuracy, top-1 (类别匹配率)                | **29/30 = 96.7%** |
+| Resource-id accuracy, top-1 (资源编号匹配率, best-effort) | 29/30 = 96.7%   |
+| Resource-id MRR@3                                    | 0.967           |
+| Average confidence                                   | ~71%            |
+| Average latency                                      | ~32 ms / case   |
 
-The single miss is the colloquial query `一楼单元门口加个坡道让轮椅能下去 要有扶手`
-which matched the *doors/windows* specialty instead of *accessibility*. Full
-per-case detail is in `results/sample_result.csv` and `results/experiment_report.md`.
+The category figure is what the original "96.7%" actually measured. The
+resource-id figure depends on a **best-effort** annotation of the correct
+资源编号 that still needs confirmation by a domain expert — it is not yet an
+authoritative claim.
+
+The single top-1 miss is `门口路面铺沥青 小区车行道 底下水稳20公分`, which
+matched a masonry-block wall instead of the asphalt-road resource. An ablation
+study (pure TF-IDF vs +keyword vs +parameter vs full fusion) shows the parameter
+signal currently *reduces* accuracy at the default weights (90.0% vs 100.0% for
+text+keyword on this small set) — so the fusion weights are experimental and
+must be tuned on a held-out set. Full per-case detail is in `results/` and can
+be regenerated with `python main.py --report` / `python main.py --ablation`.
 
 ## Limitations
 

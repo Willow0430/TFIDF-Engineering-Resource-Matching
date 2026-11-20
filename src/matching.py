@@ -1,34 +1,125 @@
 # -*- coding: utf-8 -*-
 """Matching engine and change-cost prediction.
 
-``match_quota`` fuses three signals into a single score:
+``match_quota`` fuses four explainable signals into a single score:
 
-- TF-IDF cosine similarity (weight 0.65)
-- keyword-overlap boost       (weight 0.20)
-- dimension-match boost       (weight 0.15)
+    S = 0.40·S_t + 0.25·S_k + 0.25·S_d + 0.10·S_c
+
+- ``S_t``  text similarity     (TF-IDF cosine)          weight 0.40
+- ``S_k``  keyword overlap     (weighted term overlap)  weight 0.25
+- ``S_d``  parameter match     (dimension / material / strength, with
+                                  conflict penalty)     weight 0.25
+- ``S_c``  category affinity   (specialty-keyword hit)  weight 0.10
+
+These weights are an *experimental starting point* and must be tuned on a
+held-out labeled set; they are not claimed to be optimal.
 """
 
 from collections import defaultdict
 
 from .preprocessing import normalize_query, tokenize
-from .similarity import cosine_similarity, dimension_match_score, keyword_boost
+from .similarity import cosine_similarity, keyword_match, parameter_match_score
 from .tfidf import compute_idf, compute_tfidf_vector
 from .quota_db import QUOTA_DB
 
 # ── Pre-compute IDF over the entire resource corpus ──
-_QUOTA_TEXTS = [q["_text"] for q in QUOTA_DB]
-_ALL_TOKENS = [tokenize(t) for t in _QUOTA_TEXTS]
-IDF = compute_idf(_ALL_TOKENS)
 
 
-def match_quota(query_text, top_k=5):
-    """Match a query against the resource library and return the top matches.
+def rebuild_index():
+    """Recompute the module-level IDF table from the current ``QUOTA_DB``.
 
-    Each result carries the matched resource, the three component scores,
-    the combined score, a percentage confidence and a reliability label.
+    Call this after the resource library is replaced (e.g. loaded from a CSV)
+    so that queries and documents still share one vector space.
     """
+    global IDF
+    texts = [q["_text"] for q in QUOTA_DB]
+    IDF = compute_idf([tokenize(t) for t in texts])
+    return IDF
+
+
+IDF = rebuild_index()
+
+# Experimental fusion weights (sum to 1.0). Tune on a validation set.
+W_TEXT, W_KEYWORD, W_PARAM, W_CATEGORY = 0.40, 0.25, 0.25, 0.10
+
+# Rejection threshold and reliability bands.
+MIN_SCORE = 0.05
+HIGH_SCORE = 0.45
+MEDIUM_SCORE = 0.20
+
+
+# Specialty -> indicative keyword set (lowercase), for category affinity.
+CATEGORY_KEYWORDS = {
+    '砌筑工程': {'砖墙', '砌块', '砌筑', '砖砌', '挡土墙', '实心砖', '多孔砖', '空心砖', '陶粒', '加气混凝土', '台阶'},
+    '混凝土工程': {'混凝土', '构造柱', '框架柱', '圈梁', '过梁', '矩形梁', '楼板', '楼梯', '基础', '压顶', '散水', '预制', '空心板', '雨篷'},
+    '钢筋工程': {'钢筋', '制安', '植筋', '套筒', '焊接网', '机械连接'},
+    '保温工程': {'保温', 'xps', 'eps', '岩棉', '挤塑', '苯板', '隔热'},
+    '防水工程': {'防水', 'sbs', 'js', '渗透结晶', '卷材', '防水涂料', '防水层'},
+    '抹灰工程': {'抹灰', '找平', '水泥砂浆', '抹面', '抹灰层'},
+    '涂料工程': {'涂料', '真石漆', '乳胶漆', '刷漆', '油漆', '批刮'},
+    '门窗工程': {'门窗', '断桥', '塑钢', '平开窗', '防盗门', '防火门', '中空玻璃', '推拉窗'},
+    '钢结构工程': {'钢结构', '井道', '钢梁', '钢柱', '型钢', '钢架'},
+    '楼地面工程': {'楼地面', '地砖', '地板', '踢脚', '地坪', '地面', '找平层'},
+    '天棚工程': {'天棚', '吊顶', '龙骨', '矿棉板', '硅酸钙板', '顶棚'},
+    '屋面工程': {'屋面', '屋顶', '屋面板', '女儿墙', '檐口'},
+    '安装工程': {'管道', '给水', '排水', 'ppr', 'pvc', '水暖', '阀门', '水表'},
+    '电气工程': {'电气', '灯具', '照明', '电线', '电缆', '配电', 'led', '开关', '插座'},
+    '暖通工程': {'暖通', '采暖', '通风', '空调', '地暖', '散热器', '风机'},
+    '市政工程': {'市政', '道路', '沥青', '水稳', '透水砖', '路基', '面层', '路面', '路缘石'},
+    '园林景观': {'园林', '景观', '绿化', '种植', '乔木', '灌木', '草坪', '铺装'},
+    '适老化专项': {'适老化', '无障碍', '扶手', '坡道', '日间照料', '电伴热', '助浴'},
+    '拆除工程': {'拆除', '清运', '破碎', '拆改'},
+    '措施项目': {'措施', '脚手架', '模板', '垂直运输', '安全文明', '成品保护'},
+    '智能化': {'智能化', '门禁', '监控', '弱电', 'nb-iot', '安防', '综合管沟'},
+}
+
+
+def category_match(query_tokens, category):
+    """Category affinity in [0, 1]: 0.5 per hit keyword, capped at 1.0.
+
+    Uses substring containment so that domain-word tokens (e.g. "实心砖墙")
+    still match category keywords (e.g. "砖墙").
+    """
+    kws = CATEGORY_KEYWORDS.get(category)
+    if not kws:
+        return 0.0
+    hits = 0
+    for kw in kws:
+        if any(kw in tok or tok in kw for tok in query_tokens):
+            hits += 1
+    return min(1.0, 0.5 * hits)
+
+
+def _reliability(combined):
+    if combined >= HIGH_SCORE:
+        return "high"
+    if combined >= MEDIUM_SCORE:
+        return "medium"
+    return "low"
+
+
+def match_quota(query_text, top_k=5, weights=None):
+    """Match a query against the resource library.
+
+    Returns up to ``top_k`` results (each with the four component scores, the
+    combined score, a percentage confidence, a reliability label and a human
+    explanation). Candidates whose combined score is below ``MIN_SCORE`` are
+    rejected; an empty list therefore means "no confident match".
+
+    ``weights`` optionally overrides the fusion weights as a 4-tuple
+    ``(w_text, w_keyword, w_param, w_category)``; this is used by the ablation
+    study to measure each signal's marginal contribution. ``None`` uses the
+    module defaults.
+    """
+    w_text, w_keyword, w_param, w_category = (
+        weights if weights is not None
+        else (W_TEXT, W_KEYWORD, W_PARAM, W_CATEGORY)
+    )
+
     normalized = normalize_query(query_text)
     tokens = tokenize(normalized)
+    if not tokens:
+        return []
     query_vec = compute_tfidf_vector(tokens, IDF)
 
     results = []
@@ -36,27 +127,32 @@ def match_quota(query_text, top_k=5):
         item_tokens = tokenize(item["_text"])
         item_vec = compute_tfidf_vector(item_tokens, IDF)
 
-        # TF-IDF cosine similarity (weight 0.65)
-        tfidf_sim = cosine_similarity(query_vec, item_vec)
+        s_text = cosine_similarity(query_vec, item_vec)
+        s_keyword = keyword_match(tokens, item["_text"])
+        s_param = parameter_match_score(normalized, item["_text"])
+        s_category = category_match(tokens, item["category"])
 
-        # Keyword-overlap boost (weight 0.20)
-        kw_score = keyword_boost(tokens, item["_text"])
+        combined = (w_text * s_text + w_keyword * s_keyword +
+                    w_param * s_param + w_category * s_category)
 
-        # Dimension-match boost (weight 0.15)
-        dim_score = dimension_match_score(normalized, item["_text"])
+        if combined <= MIN_SCORE:
+            continue
 
-        combined = tfidf_sim * 0.65 + kw_score * 0.20 + dim_score * 0.15
-
-        if combined > 0.03:
-            results.append({
-                "quota": item,
-                "tfidf_sim": tfidf_sim,
-                "kw_score": kw_score,
-                "dim_score": dim_score,
-                "combined": combined,
-                "confidence": min(combined * 100, 99.9),
-                "reliability": "high" if combined > 0.25 else ("medium" if combined > 0.12 else "low"),
-            })
+        results.append({
+            "quota": item,
+            "s_text": s_text,
+            "s_keyword": s_keyword,
+            "s_param": s_param,
+            "s_category": s_category,
+            "combined": combined,
+            "confidence": min(max(combined, 0.0) * 100, 99.9),
+            "reliability": _reliability(combined),
+            "explanation": (
+                f"文本 {s_text:.3f} + 关键词 {s_keyword:.3f} + "
+                f"参数 {s_param:.3f} + 类别 {s_category:.3f} "
+                f"→ 综合 {combined:.3f}"
+            ),
+        })
 
     results.sort(key=lambda x: x["combined"], reverse=True)
     return results[:top_k]

@@ -14,6 +14,10 @@ def test_compute_idf_smoothed():
     assert math.isclose(idf["b"], math.log(1.5) + 1, rel_tol=1e-9)
 
 
+def test_compute_idf_empty_corpus():
+    assert compute_idf([]) == {}
+
+
 def test_compute_tfidf_vector():
     vec = compute_tfidf_vector(["a", "a", "b"], {"a": 1.0, "b": 2.0})
     assert math.isclose(vec["a"], (2 / 3) * 1.0, rel_tol=1e-9)
@@ -21,7 +25,7 @@ def test_compute_tfidf_vector():
 
 
 def test_compute_tfidf_vector_default_idf():
-    # Unknown terms default to idf=1
+    # Unknown terms default to idf=1 (kept, not dropped)
     vec = compute_tfidf_vector(["x"], {})
     assert vec["x"] == 1.0
 

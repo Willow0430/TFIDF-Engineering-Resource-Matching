@@ -1,94 +1,97 @@
 # Experiment Report
 
 This report records the **actual, reproducible** evaluation of the matcher on
-the shipped 30-case suite. No results are fabricated; every number below was
-obtained by running `python main.py --report` on the environment in §2.
+the shipped 30-case labeled suite. No results are fabricated; every number was
+obtained by running `python main.py --report` / `python main.py --ablation` on
+the environment in §2.
 
 ## 1. Test data
 
-| Item               | Value                                  |
-|--------------------|----------------------------------------|
-| Resource library   | 202 entries, 21 specialties            |
-| Test cases         | 30 (20 standard + 10 colloquial)       |
-| Ground truth       | expected specialty per query (curated) |
+| Item               | Value                                          |
+|--------------------|------------------------------------------------|
+| Resource library   | 202 entries, 21 specialties                    |
+| Test cases         | 30 (20 standard + 10 colloquial)               |
+| Ground truth       | expected specialty **and** best-effort 资源编号 |
 | Data files         | `data/sample_queries.csv`, `results/sample_result.csv` |
 
-The 10 "colloquial" cases are deliberately harder: shorthand, dialect and
-mixed descriptions such as `老楼砖墙370厚 抹水泥20 翻新`.
+Accuracy is reported at **two separate levels**:
+
+- **类别匹配率 (category accuracy)** — top prediction's specialty equals the
+  expected specialty. Well-defined; this is what the original "96.7%" measured.
+- **资源编号匹配率 (resource-id accuracy)** — top-k predictions include the
+  specific resource 编号. This depends on a **best-effort** human annotation
+  that still needs confirmation by a domain expert.
 
 ## 2. Test environment
 
 | Item        | Value                              |
 |-------------|------------------------------------|
 | OS          | Windows 11 (PowerShell)            |
-| Python      | 3.12.10                            |
+| Python      | 3.12                              |
 | jieba       | 0.42.1                             |
-| pytest      | 9.2.0                              |
+| pytest      | 9.x                                |
 | Hardware    | laptop, single CPU                 |
 
 ## 3. Test method
 
-1. Load the 30 cases from `src/evaluation.py`.
-2. For each case: normalize → tokenize → `match_quota(top_k=3)`.
-3. Compare the top-1 matched `category` against the expected category.
-4. Record verdict (`correct`), confidence and latency per case.
-5. Report top-1 accuracy overall and split by standard / colloquial.
+1. Load the 30 labeled cases from `src/evaluation.py`.
+2. For each case: `match_quota(top_k=3)` with the default weights.
+3. Compute category top-1/top-3, resource-id top-1/top-3, Precision@1,
+   Recall@3 and MRR@3.
+4. Run the A/B/C/D ablation with the `weights` override.
 
-The suite is also encoded as a regression test in
-`tests/test_matching.py::test_full_evaluation_accuracy`.
+## 4. Results (default weights, top-3)
 
-## 4. Results
+| Metric                                              | Result          |
+|-----------------------------------------------------|-----------------|
+| Category accuracy, top-1 (类别匹配率)                | **29 / 30 = 96.7%** |
+| Resource-id accuracy, top-1 (best-effort)           | 29 / 30 = 96.7% |
+| Resource-id accuracy, top-3                         | 29 / 30 = 96.7% |
+| Precision@1                                         | 0.967            |
+| Recall@3                                            | 0.967            |
+| MRR@3                                               | 0.967            |
+| Average confidence                                  | ~71%             |
+| Average latency                                     | ~32 ms / case    |
 
-| Metric                    | Result           |
-|---------------------------|------------------|
-| Overall accuracy (top-1)  | **29 / 30 = 96.7%** |
-| Standard cases (top-1)    | 20 / 20 = 100.0% |
-| Colloquial cases (top-1)  | 9 / 10 = 90.0%   |
-| Average confidence        | 47.2%            |
-| Average latency           | ~26 ms / case    |
-
-### 4.1 The single failure
+### 4.1 The single top-1 failure
 
 | Field        | Value                                                        |
 |--------------|--------------------------------------------------------------|
-| Input        | `一楼单元门口加个坡道让轮椅能下去 要有扶手`                    |
-| Expected     | 适老化专项 (accessibility)                                    |
-| Matched      | 门窗工程 (doors/windows), confidence 26.7%                    |
-| Root cause   | After normalization the text becomes `首层单元门口无障碍坡道… 要有不锈钢扶手`. The dominant overlapping tokens (单元/门口) pull toward door-related items; the phrase `让轮椅能下去` is dropped to an empty synonym, weakening the ramp signal. |
+| Input        | `门口路面铺沥青 小区车行道 底下水稳20公分`                    |
+| Expected     | 市政工程 → 沥青混凝土道路 `2-1-4`                            |
+| Matched      | `4-2-1` 加气混凝土砌块墙 (砌筑工程), confidence ~34%          |
+| Root cause   | The phrase `水稳20公分` is normalized to `水稳20mm`, and the number of shared tokens with the road resource is not enough to overcome the generic masonry terms that dominate the query's token distribution. |
 
-This is the known weakness of a bag-of-words model on long colloquial
-sentences, and it is the primary motivation for the roadmap's embedding-model
-upgrade.
+### 4.2 Ablation study
 
-### 4.2 Per-case detail
+| Config             | 类别Top1 | 资源Top1 | 资源Top3 | MRR@3 |
+|--------------------|----------|----------|----------|-------|
+| A 纯TFIDF          | 100.0%   | 96.7%    | 100.0%   | 0.983 |
+| B TFIDF+关键词     | 100.0%   | 100.0%   | 100.0%   | 1.000 |
+| C TFIDF+参数       | 90.0%    | 90.0%    | 93.3%    | 0.917 |
+| D 完整融合 (默认)  | 96.7%    | 96.7%    | 96.7%    | 0.967 |
 
-The complete 30-row table is in `results/sample_result.csv`. A sample:
-
-```
-query                              expected      matched       verdict  conf
-370mm实心砖墙 ... 砖混住宅           砌筑工程      砌筑工程      OK       51.5%
-C25现浇混凝土构造柱 240x240 ...      混凝土工程    混凝土工程    OK       54.7%
-一楼单元门口加个坡道...              适老化专项    门窗工程      XX       26.7%
-```
+**Key finding:** on this 30-case set, the parameter signal's hard conflict
+penalty is over-aggressive — removing it (config B) actually *improves*
+accuracy. The default weights are therefore an experimental starting point and
+must be tuned on a larger held-out set before being reported as optimal.
 
 ## 5. Result analysis
 
-- **Standard cases are effectively solved** (100%). The lexicon, domain-word
-  registration and dimension matching cover the well-formed descriptions.
-- **Colloquial cases are strong but not perfect** (90%). Normalization handles
-  common shorthand (`370厚`, `5公分`, `老楼`) but not arbitrary paraphrases.
-- **Confidence is conservative** (mean 47.2%): because the score is a fused
-  linear combination and not a calibrated probability, it should be read as a
-  relative ranking signal, not an absolute certainty.
+- **Category matching is strong** (96.7%): the lexicon, domain-word
+  registration and normalization cover well-formed descriptions.
+- **Resource-id matching tracks category** on this in-distribution set, but the
+  labels are best-effort and the set is small — 96.7% is likely optimistic for
+  real-world, out-of-distribution queries.
+- **Confidence is a ranking score, not a calibrated probability**: read it as
+  relative, not absolute.
 
 ## 6. Comparison with the earlier version
 
-The original competition report (`附录C AI定额匹配测试报告.txt`) documented an
-**earlier 30-entry library** with 76.9% accuracy. The current version expands
-the library to 202 entries and adds dimension matching and a stronger synonym
-map, raising measured accuracy to 96.7%. Some in-code display strings in the
-legacy single-file version still carried stale figures (e.g. "86.7%"); the
-refactored modules and this report use the values measured above.
+The original competition report documented an **earlier 30-entry library** at
+76.9% category accuracy. The current version expands to 202 entries and adds
+parameter matching + category affinity. The prior single "96.7% overall
+accuracy" was re-labeled to the precise **category accuracy** here.
 
 ## 7. Algorithm limitations
 
@@ -97,10 +100,12 @@ refactored modules and this report use the values measured above.
 - The curated 202-entry library is not the full provincial quota; prices are
   indicative.
 - Confidence is a ranking score, not a calibrated probability.
+- The fusion weights need tuning on a held-out set (see §4.2).
 
 ## 8. Conclusion
 
-The TF-IDF + fusion pipeline achieves 96.7% top-1 accuracy on the shipped
-30-case suite at ~26 ms/case on a laptop CPU, with a single, well-understood
-colloquial failure. It is a solid, reproducible baseline for engineering
-resource matching.
+The TF-IDF + fusion pipeline achieves 96.7% **category** accuracy on the
+shipped 30-case suite at ~32 ms/case on a laptop CPU. The resource-id level is
+reported separately and marked best-effort. The ablation study shows the
+parameter signal currently over-penalizes at the default weights — an honest
+starting point for further tuning rather than a finished result.

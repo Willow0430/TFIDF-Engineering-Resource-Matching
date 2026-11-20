@@ -20,7 +20,7 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from src import QUOTA_DB, TEST_CASES, match_quota, normalize_query  # noqa: E402
+from src import QUOTA_DB, LABELED_TEST_CASES, match_quota  # noqa: E402
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DATA_DIR = os.path.join(ROOT, "data")
@@ -43,33 +43,38 @@ def export_quota_db():
 
 
 def export_sample_queries():
-    rows = [[text, expected_cat, note] for text, expected_cat, note in TEST_CASES]
+    rows = [[c["query"], c["category"], "|".join(c["ids"]),
+             "是" if c["ambiguous"] else "否", c["note"]]
+            for c in LABELED_TEST_CASES]
     _write_csv(os.path.join(DATA_DIR, "sample_queries.csv"),
-               ["query", "expected_category", "note"], rows)
+               ["query", "expected_category", "expected_ids", "ambiguous", "note"], rows)
 
 
 def export_sample_results():
     rows = []
-    for case_text, expected_cat, note in TEST_CASES:
+    for c in LABELED_TEST_CASES:
+        case_text = c["query"]
         start = time.perf_counter()
-        normalized = normalize_query(case_text)
-        matches = match_quota(normalized, top_k=1)
+        matches = match_quota(case_text, top_k=3)
         elapsed = time.perf_counter() - start
         if matches:
             top = matches[0]
             q = top["quota"]
-            rows.append([case_text, expected_cat, q["category"],
-                         "OK" if expected_cat == q["category"] else "XX",
-                         q["id"], q["name"], q["unit"], q["unit_price"],
-                         round(top["confidence"], 1), top["reliability"],
-                         round(elapsed * 1000, 3), note])
+            predicted_ids = [m["quota"]["id"] for m in matches]
+            id_ok = "OK" if any(pid in c["ids"] for pid in predicted_ids) else "XX"
+            cat_ok = "OK" if q["category"] == c["category"] else "XX"
+            rows.append([case_text, c["category"], q["category"], cat_ok,
+                         "|".join(c["ids"]), id_ok, q["id"], q["name"],
+                         q["unit"], q["unit_price"], round(top["confidence"], 1),
+                         top["reliability"], round(elapsed * 1000, 3), c["note"]])
         else:
-            rows.append([case_text, expected_cat, "无匹配", "XX", "", "", "", "",
-                         "", "none", round(elapsed * 1000, 3), note])
+            rows.append([case_text, c["category"], "无匹配", "XX",
+                         "|".join(c["ids"]), "XX", "", "", "", "", "",
+                         "none", round(elapsed * 1000, 3), c["note"]])
     _write_csv(os.path.join(RESULTS_DIR, "sample_result.csv"),
-               ["query", "expected_category", "matched_category", "verdict",
-                "matched_id", "matched_name", "unit", "unit_price",
-                "confidence(%)", "reliability", "time_ms", "note"], rows)
+               ["query", "expected_category", "matched_category", "category_verdict",
+                "expected_ids", "id_verdict", "matched_id", "matched_name", "unit",
+                "unit_price", "confidence(%)", "reliability", "time_ms", "note"], rows)
 
 
 if __name__ == "__main__":

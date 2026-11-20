@@ -17,8 +17,10 @@ Items below are **not yet implemented**; they describe planned future work.
       (e.g. BERT-family) to improve colloquial and paraphrase coverage.
 - [ ] Add compound-pricing logic (e.g. an exterior wall decomposes into
       masonry + insulation + finishing).
-- [ ] Parameterize the fusion weights (0.65 / 0.20 / 0.15) via configuration
-      rather than hardcoding them.
+- [ ] Tune the fusion weights (0.40 / 0.25 / 0.25 / 0.10) on a held-out
+      labeled set, and parameterize them via configuration rather than
+      hardcoding them (the ablation study already shows the parameter signal
+      over-penalizes at the current defaults).
 
 ## Long term
 

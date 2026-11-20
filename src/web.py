@@ -27,7 +27,7 @@ def build_web_demo(share=False):
 
         best = matches[0]
         tag = {"high": "高", "medium": "中", "low": "低"}[best["reliability"]]
-        top_result = "[{}] {}\n置信度: {} | 综合单价: {:.2f}元/{}".format(
+        top_result = "[{}] {}\n可靠性: {} | 综合单价: {:.2f}元/{}".format(
             best["quota"]["id"], best["quota"]["name"],
             tag, best["quota"]["unit_price"], best["quota"]["unit"])
 
@@ -59,7 +59,7 @@ def build_web_demo(share=False):
         # Engineering Resource Matching (TF-IDF)
         NLP-driven resource matching + change-cost prediction.
 
-        **Algorithm:** TF-IDF + keyword boost + dimension match + normalization
+        **Algorithm:** TF-IDF + keyword + parameter + category fusion
         | **Resource library:** {} entries / {} specialties
         """.format(len(QUOTA_DB), len(set(q['category'] for q in QUOTA_DB))))
 
@@ -121,7 +121,8 @@ def build_web_demo(share=False):
             2. **Normalization**: synonym mapping + thickness/numeral unification.
             3. **Tokenization**: jieba (with regex fallback).
             4. **Vectorization**: TF-IDF weighting over the resource corpus.
-            5. **Scoring**: cosine similarity + keyword boost + dimension match.
+            5. **Scoring**: fused text / keyword / parameter / category signals
+               (0.40 / 0.25 / 0.25 / 0.10).
             6. **Output**: ranked resource matches with confidence + unit price.
             """)
 
