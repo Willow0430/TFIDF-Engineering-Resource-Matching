@@ -1,0 +1,12 @@
+# Core dependency (Chinese tokenization).
+# The matcher degrades gracefully to a built-in regex tokenizer if jieba is missing.
+jieba>=0.42.1
+
+# Optional — launch the browser web demo:  python main.py --web
+gradio>=4.0
+
+# Optional — regenerate the charts in images/ via scripts/make_images.py
+matplotlib>=3.5
+
+# Development — run the test suite:  python -m pytest
+pytest>=7.0
